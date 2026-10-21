@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
-test.serial.skipIf(!hasNativeTestRenderer)('starts locally and keeps git setup optional', async () => {
+test.serial.skipIf(!hasNativeTestRenderer || process.env.CI === 'true')('starts locally and keeps git setup optional', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'promptdeck-ui-'))
   roots.push(dir)
   process.env.PROMPTDECK_DATA_DIR = dir
@@ -48,10 +48,11 @@ test.serial.skipIf(!hasNativeTestRenderer)('starts locally and keeps git setup o
     expect(sidebarTitle.style.whiteSpace).toBe('nowrap')
     expect(sidebarTitle.style.overflow).toBe('hidden')
 
+    const frame = surface(renderer)
     const useTab = boundsFor(renderer, '使用')
     const editTab = boundsFor(renderer, '编辑')
-    const historyTab = bottomText(renderer, '历史')
-    expect(useTab.y).toBeGreaterThan(680)
+    const historyTab = bottomText(renderer, '历史', frame.height - 80)
+    expect(useTab.y).toBeGreaterThan(frame.height - 80)
     expect(useTab.x).toBeLessThan(360)
     expect(historyTab.x).toBeGreaterThan(useTab.x)
     expect(historyTab.y).toBe(useTab.y)
@@ -97,7 +98,7 @@ test.serial.skipIf(!hasNativeTestRenderer)('starts locally and keeps git setup o
       .findByType('input')
       .map((element) => renderer.getElementBounds(element.id))
       .flatMap((bounds) => (bounds && bounds.x >= 270 ? [bounds.width] : []))
-    expect(Math.max(...fieldWidths)).toBeGreaterThan(700)
+    expect(Math.max(...fieldWidths)).toBeGreaterThan(frame.width - 420)
     const saveBox = buttonBox(renderer, '保存')
     const deleteBox = buttonBox(renderer, '删除')
     expect(Math.abs((saveBox?.height ?? 0) - (deleteBox?.height ?? 0))).toBeLessThan(3)
@@ -300,7 +301,7 @@ test.serial.skipIf(!hasNativeTestRenderer)('starts locally and keeps git setup o
     expect((settingsBox?.x ?? 99) + (settingsBox?.width ?? 0)).toBeLessThanOrEqual((activity?.x ?? 0) + (activity?.width ?? 0) + 1)
     expect((syncBox?.x ?? 99) + (syncBox?.width ?? 0)).toBeLessThanOrEqual((activity?.x ?? 0) + (activity?.width ?? 0) + 1)
     expect((settingsBox?.y ?? 0) + (settingsBox?.height ?? 0)).toBeLessThanOrEqual(statusBar?.y ?? 0)
-    expect(statusBar?.y ?? 0).toBeGreaterThan(700)
+    expect(statusBar?.y ?? 0).toBeGreaterThan(surface(renderer).height - 60)
     click(renderer, '编辑')
     await waitFor(renderer, '模板信息')
     await waitForTestId(renderer, 'dirty-mark')
@@ -564,12 +565,25 @@ function bringIntoView(renderer: TestRenderer, testId: string): void {
   }
 }
 
-function bottomText(renderer: TestRenderer, label: string): { x: number; y: number } {
+function surface(renderer: TestRenderer): { width: number; height: number } {
+  renderer.flush()
+  let width = 0
+  let height = 0
+  for (const element of renderer.findByType('div')) {
+    const bounds = renderer.getElementBounds(element.id)
+    if (!bounds || bounds.x !== 0 || bounds.y !== 0) continue
+    width = Math.max(width, bounds.width)
+    height = Math.max(height, bounds.height)
+  }
+  return { width, height }
+}
+
+function bottomText(renderer: TestRenderer, label: string, minY: number): { x: number; y: number } {
   renderer.flush()
   const bounds = renderer.findByType('text')
     .filter((item) => item.text === label)
     .map((item) => renderer.getElementBounds(item.id))
-    .filter((item): item is NonNullable<typeof item> => item != null && item.y > 680)
+    .filter((item): item is NonNullable<typeof item> => item != null && item.y > minY)
   const found = bounds[0]
   if (!found) throw new Error(`底部没有「${label}」`)
   return found

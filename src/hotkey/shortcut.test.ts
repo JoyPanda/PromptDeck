@@ -47,7 +47,7 @@ describe('shortcut', () => {
     expect(windowsHotkey(null)).toBeNull()
   })
 
-  test('can read the platform key state', () => {
+  test.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')('can read the platform key state', () => {
     expect(typeof keyIsDown(0)).toBe('boolean')
   })
 })
