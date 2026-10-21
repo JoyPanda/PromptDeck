@@ -1,0 +1,344 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（例如 v0.9.1；留空使用 package.json）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      release_created: ${{ steps.existing_release.outputs.exists == 'false' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Get version
+        id: get_version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          PACKAGE_VERSION="v$(bun -e 'process.stdout.write(JSON.parse(await Bun.file("package.json").text()).version)')"
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            VERSION="$TAG_VERSION"
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="$PACKAGE_VERSION"
+          fi
+
+          if [[ "$VERSION" != v* ]]; then
+            VERSION="v$VERSION"
+          fi
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Use v1.2.3 or 1.2.3."
+            exit 1
+          fi
+
+          if [[ "$VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "::error::Release version '$VERSION' must match package.json version '$PACKAGE_VERSION'. Update package.json first."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify manual release tag exists
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $RELEASE_VERSION does not exist. Push the version tag first, then run this workflow."
+            exit 1
+          fi
+
+          REMOTE_TAG_SHA=$(git ls-remote origin "refs/tags/$RELEASE_VERSION^{}" | awk 'NR == 1 { print $1 }')
+          if [[ -z "$REMOTE_TAG_SHA" ]]; then
+            REMOTE_TAG_SHA=$(git ls-remote origin "refs/tags/$RELEASE_VERSION" | awk 'NR == 1 { print $1 }')
+          fi
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+
+          if [[ "$REMOTE_TAG_SHA" != "$CHECKOUT_SHA" ]]; then
+            echo "::error::Tag $RELEASE_VERSION points to $REMOTE_TAG_SHA, but this workflow checked out $CHECKOUT_SHA. Dispatch the workflow from the tagged commit."
+            exit 1
+          fi
+
+          echo "Using existing tag $RELEASE_VERSION at $CHECKOUT_SHA; no tag will be created or pushed."
+
+      - name: Check for an existing release
+        id: existing_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          if gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "::notice::Release $RELEASE_VERSION already exists; existing notes and assets are preserved; missing installers may be uploaded."
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Draft Release
+        if: steps.existing_release.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: PromptDeck ${{ steps.get_version.outputs.version }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+
+  build-mac:
+    needs: create-release
+    if: needs.create-release.result == 'success'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+
+      - name: Check macOS signing configuration
+        id: mac-signing
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          MISSING=()
+          [[ -z "$MAC_CSC_LINK" ]] && MISSING+=(MAC_CSC_LINK)
+          [[ -z "$MAC_CSC_KEY_PASSWORD" ]] && MISSING+=(MAC_CSC_KEY_PASSWORD)
+          [[ -z "$APPLE_ID" ]] && MISSING+=(APPLE_ID)
+          [[ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]] && MISSING+=(APPLE_APP_SPECIFIC_PASSWORD)
+          [[ -z "$APPLE_TEAM_ID" ]] && MISSING+=(APPLE_TEAM_ID)
+
+          if [[ ${#MISSING[@]} -eq 0 ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "### macOS (arm64) 签名状态：✅ 将执行 Developer ID 签名 + Apple 公证" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::macOS signing credentials are incomplete (missing: ${MISSING[*]}); publishing an unsigned compatibility build."
+            {
+              echo "### macOS (arm64) 签名状态：⚠️ 未签名兼容构建"
+              echo ""
+              echo "缺少 Secrets：\`${MISSING[*]}\`"
+              echo ""
+              echo "产物将以 \`-unsigned\` 后缀发布（仅 ad-hoc 签名，未公证），用户需在访达中右键应用并选择「打开」。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build, sign, and notarize (macOS)
+        if: steps.mac-signing.outputs.available == 'true'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROMPTDECK_SIGNED: '1'
+        run: bun run package
+
+      - name: Verify macOS signature and notarization
+        if: steps.mac-signing.outputs.available == 'true'
+        shell: bash
+        run: |
+          APP_PATH=$(find dist -maxdepth 2 -type d -name 'PromptDeck.app' -print -quit)
+          DMG_PATH=$(find dist -maxdepth 1 -type f -name 'PromptDeck-*-macOS-arm64.dmg' ! -name '*-unsigned.dmg' -print -quit)
+          if [[ -z "$APP_PATH" || -z "$DMG_PATH" ]]; then
+            echo '::error::Signed macOS app or disk image was not produced.'
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          echo "- ✅ \`$DMG_PATH\` 通过 codesign 校验和公证票据校验" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build unsigned compatibility package (macOS)
+        if: steps.mac-signing.outputs.available != 'true'
+        run: bun run package
+
+      - name: Upload macOS installer if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          shopt -s nullglob
+          ARTIFACTS=(dist/PromptDeck-*-macOS-*.dmg)
+          if (( ${#ARTIFACTS[@]} == 0 )); then
+            echo '::error::No macOS installer was produced.'
+            exit 1
+          fi
+
+          EXISTING_ASSETS=$(gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name')
+          for artifact in "${ARTIFACTS[@]}"; do
+            asset=$(basename "$artifact")
+            if grep -Fqx "$asset" <<< "$EXISTING_ASSETS"; then
+              echo "Skipping existing Release asset $asset"
+            else
+              gh release upload "$RELEASE_VERSION" "$artifact" --repo "$GITHUB_REPOSITORY"
+              EXISTING_ASSETS+=$'\n'"$asset"
+            fi
+          done
+
+  build-windows:
+    needs: create-release
+    if: needs.create-release.result == 'success'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build unsigned Windows installer
+        run: bun run package
+
+      - name: Check SignPath configuration
+        id: signpath
+        shell: pwsh
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+        run: |
+          $missing = @()
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_API_TOKEN)) { $missing += 'SIGNPATH_API_TOKEN' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_ORGANIZATION_ID)) { $missing += 'SIGNPATH_ORGANIZATION_ID' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_PROJECT_SLUG)) { $missing += 'SIGNPATH_PROJECT_SLUG' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_SIGNING_POLICY_SLUG)) { $missing += 'SIGNPATH_SIGNING_POLICY_SLUG' }
+
+          if ($missing.Count -eq 0) {
+            "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "### Windows 签名状态：✅ 将提交 SignPath 签名请求" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Warning ("SignPath credentials are incomplete (missing: {0}); publishing an unsigned compatibility build." -f ($missing -join ', '))
+            "### Windows 签名状态：⚠️ 未签名兼容构建" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            ("缺少 Secrets：``{0}``" -f ($missing -join ', ')) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "安装包将以 ``-unsigned`` 后缀发布，安装时会触发 SmartScreen 提示（更多信息 → 仍要运行）。" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+
+      - name: Upload unsigned installer for origin verification
+        if: steps.signpath.outputs.available == 'true'
+        id: upload-unsigned-windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer
+          path: dist/PromptDeck-*-Windows-Setup.exe
+          if-no-files-found: error
+
+      - name: Submit Windows installer to SignPath
+        if: steps.signpath.outputs.available == 'true'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/signed
+
+      - name: Publish Windows installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.create-release.outputs.version }}
+          SIGNED: ${{ steps.signpath.outputs.available }}
+        run: |
+          if ($env:SIGNED -eq 'true') {
+            $installer = Get-ChildItem -Path dist/signed -Filter 'PromptDeck-*-Windows-Setup.exe' -Recurse | Select-Object -First 1
+            if (-not $installer) {
+              throw 'Signed Windows installer was not found.'
+            }
+
+            $sig = Get-AuthenticodeSignature -FilePath $installer.FullName
+            if ($sig.Status -ne 'Valid') {
+              throw "Signed installer failed Authenticode verification: $($sig.Status) $($sig.StatusMessage)"
+            }
+            ("- ✅ Authenticode 校验通过，签名者：``{0}``" -f $sig.SignerCertificate.Subject) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            $installer = Get-ChildItem -Path dist -Filter 'PromptDeck-*-Windows-Setup.exe' | Select-Object -First 1
+            if (-not $installer) {
+              throw 'Windows installer was not found.'
+            }
+
+            $unsignedName = $installer.Name -replace '\.exe$', '-unsigned.exe'
+            $installer = Rename-Item -Path $installer.FullName -NewName $unsignedName -PassThru
+          }
+
+          $existingAssets = @(gh release view $env:RELEASE_VERSION --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name')
+          if ($existingAssets -contains $installer.Name) {
+            Write-Host "Skipping existing Release asset $($installer.Name)"
+          } else {
+            gh release upload $env:RELEASE_VERSION $installer.FullName --repo $env:GITHUB_REPOSITORY
+          }
+
+  build-linux:
+    needs: create-release
+    if: needs.create-release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+      - name: Install AppImage tools
+        run: sudo apt-get update && (sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64)
+      - name: Build Linux installer
+        run: bun run package
+      - name: Upload Linux installer if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          shopt -s nullglob
+          ARTIFACTS=(dist/PromptDeck-*-linux.AppImage)
+          if (( ${#ARTIFACTS[@]} == 0 )); then
+            echo '::error::No Linux AppImage was produced.'
+            exit 1
+          fi
+
+          EXISTING_ASSETS=$(gh release view "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name')
+          for artifact in "${ARTIFACTS[@]}"; do
+            asset=$(basename "$artifact")
+            if grep -Fqx "$asset" <<< "$EXISTING_ASSETS"; then
+              echo "Skipping existing Release asset $asset"
+            else
+              gh release upload "$RELEASE_VERSION" "$artifact" --repo "$GITHUB_REPOSITORY"
+              EXISTING_ASSETS+=$'\n'"$asset"
+            fi
+          done

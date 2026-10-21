@@ -1,0 +1,25 @@
+{
+  "name": "promptdeck",
+  "version": "0.9.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/main.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "bun scripts/compile.ts",
+    "package": "bun scripts/package.ts",
+    "release": "bun scripts/release.ts"
+  },
+  "dependencies": {
+    "@gpuix/react": "0.10.0",
+    "isomorphic-git": "^1.43.3",
+    "react": "19.2.4",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/react": "19.2.0",
+    "typescript": "~5.8.3"
+  }
+}
