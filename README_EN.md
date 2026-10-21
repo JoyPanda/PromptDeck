@@ -58,6 +58,8 @@ Windows packaging needs Inno Setup 6. The release steps are in [docs/release_EN.
 
 Thanks to everyone who contributes.
 
+<a href="https://github.com/cursor"><img src="https://github.com/cursor.png" width="48" height="48" alt="Cursor"></a>
+
 <a href="https://github.com/JoyPanda/PromptDeck/graphs/contributors">Contributors</a>
 
 <p align="center">

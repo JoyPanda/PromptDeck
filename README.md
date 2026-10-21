@@ -58,6 +58,8 @@ Windows 打包需要先安装 Inno Setup 6。发布步骤见 [docs/release.md](d
 
 感谢每一位贡献者！
 
+<a href="https://github.com/cursor"><img src="https://github.com/cursor.png" width="48" height="48" alt="Cursor"></a>
+
 <a href="https://github.com/JoyPanda/PromptDeck/graphs/contributors">贡献者</a>
 
 <p align="center">
