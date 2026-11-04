@@ -2,25 +2,33 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { windowsFileVersion } from './names'
-import { patchWindowsExeIcon } from './win-icon'
+import { installWindowsIcon } from './win-icon'
 
 const nativeModules: Record<string, string> = {
   'darwin-arm64': path.join('node_modules', '@gpuix', 'native-darwin-arm64', 'gpuix-native.darwin-arm64.node'),
   'win32-x64': path.join('node_modules', '@gpuix', 'native-win32-x64-msvc', 'gpuix-native.win32-x64-msvc.node'),
   'linux-x64': path.join('node_modules', '@gpuix', 'native-linux-x64-gnu', 'gpuix-native.linux-x64-gnu.node'),
 }
-const source = nativeModules[`${process.platform}-${process.arch}`]
+const compileTargets: Record<string, string> = {
+  'darwin-arm64': 'bun-darwin-arm64',
+  'win32-x64': 'bun-windows-x64',
+  'linux-x64': 'bun-linux-x64',
+}
+const host = `${process.platform}-${process.arch}`
+const targetArg = process.argv.find((arg) => arg.startsWith('--target='))
+const target = targetArg ? targetArg.slice('--target='.length) : host
+const source = nativeModules[target]
 const asset = path.join('dist', 'gpuix-native.node')
 const entry = path.join('dist', 'entry.ts')
-const outfile = process.platform === 'win32' ? path.join('dist', 'PromptDeck.exe') : path.join('dist', 'PromptDeck')
+const outfile = target === 'win32-x64' ? path.join('dist', 'PromptDeck.exe') : path.join('dist', 'PromptDeck')
 
-if (!source) {
-  console.error(`还不支持在 ${process.platform}/${process.arch} 上打包。GPUIX 0.10 提供 macOS arm64、Windows x64 和 Linux x64。`)
+if (!source || !compileTargets[target]) {
+  console.error(`还不支持为 ${target} 打包。GPUIX 0.10 提供 macOS arm64、Windows x64 和 Linux x64。`)
   process.exit(1)
 }
 
 if (!existsSync(source)) {
-  console.error(`找不到本机原生模块 ${source}。请在对应系统上执行 bun install 后再打包。`)
+  console.error(`找不到 ${target} 的原生模块 ${source}。请先安装对应的 @gpuix 原生包后再打包。`)
   process.exit(1)
 }
 
@@ -29,24 +37,26 @@ copyFileSync(source, asset)
 writeEntry(entry)
 
 const args = ['build', '--compile', `--asset=${asset}`, entry, '--outfile', outfile]
-if (process.platform === 'win32') {
-  const version = windowsFileVersion(JSON.parse(readFileSync('package.json', 'utf8')).version)
-  args.push(
-    '--windows-hide-console',
-    '--windows-title=PromptDeck',
-    '--windows-description=PromptDeck',
-    '--windows-publisher=PromptDeck',
-    `--windows-version=${version}`,
-    `--asset=${path.resolve('assets', 'PromptDeck.ico')}`,
-  )
+if (target !== host) args.push(`--target=${compileTargets[target]}`)
+if (target === 'win32-x64') {
+  args.push('--windows-hide-console', `--asset=${path.resolve('assets', 'PromptDeck.ico')}`)
+  if (process.platform === 'win32') {
+    const version = windowsFileVersion(JSON.parse(readFileSync('package.json', 'utf8')).version)
+    args.push(
+      '--windows-title=PromptDeck',
+      '--windows-description=PromptDeck',
+      '--windows-publisher=PromptDeck',
+      `--windows-version=${version}`,
+    )
+  }
 }
 
 const result = spawnSync(process.execPath, args, { stdio: 'inherit' })
 if (result.status === 0) {
   try {
-    if (process.platform === 'win32') {
+    if (target === 'win32-x64') {
       const exePath = path.resolve(outfile)
-      writeFileSync(exePath, patchWindowsExeIcon(readFileSync(exePath), readFileSync(path.resolve('assets', 'PromptDeck.ico'))))
+      writeFileSync(exePath, installWindowsIcon(readFileSync(exePath), readFileSync(path.resolve('assets', 'PromptDeck.ico'))))
     }
   } finally {
     unlinkSync(asset)

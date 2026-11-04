@@ -1,3 +1,5 @@
+import { deflateSync } from 'node:zlib'
+
 type Section = { va: number; span: number; raw: number }
 
 export type IconImage = { width: number; height: number; bytes: Buffer }
@@ -67,10 +69,88 @@ export function groupIconResource(images: IconImage[]): Buffer {
   return header
 }
 
+const ICON_BYTE_LIMIT = 65535
+
+// Keep Bun's original resource layout. Rebuilding the section makes Windows refuse to start the exe.
+export function installWindowsIcon(exe: Buffer, ico: Buffer): Buffer {
+  const images = iconsWindowsCanLoad(readIco(ico))
+  if (images.length === 0) throw new Error('图标没有能写入 exe 的尺寸')
+  return writeIconImages(exe, images)
+}
+
+function iconsWindowsCanLoad(images: IconImage[]): IconImage[] {
+  const usable = images.flatMap((image) => {
+    if (image.bytes.length <= ICON_BYTE_LIMIT) return [image]
+    const png = pngIcon(image)
+    return png ? [{ width: image.width, height: image.height, bytes: png }] : []
+  })
+  return usable.sort((left, right) => left.width - right.width || left.bytes.length - right.bytes.length)
+}
+
+function pngIcon(image: IconImage): Buffer | null {
+  const dib = image.bytes
+  if (dib.length < 40 || dib.readUInt32LE(0) !== 40 || dib.readUInt16LE(14) !== 32 || dib.readUInt32LE(16) !== 0) return null
+  const width = dib.readInt32LE(4)
+  const storedHeight = dib.readInt32LE(8)
+  const topDown = storedHeight < 0
+  const height = Math.abs(storedHeight) / 2
+  if (width !== image.width || height !== image.height || width < 1 || height < 1) return null
+  const pixels = dib.subarray(40, 40 + width * height * 4)
+  if (pixels.length !== width * height * 4) return null
+  const raw = Buffer.alloc(height * (1 + width * 4))
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = topDown ? y : height - 1 - y
+    const row = y * (1 + width * 4)
+    raw[row] = 0
+    for (let x = 0; x < width; x += 1) {
+      const source = (sourceY * width + x) * 4
+      const target = row + 1 + x * 4
+      raw[target] = pixels[source + 2] ?? 0
+      raw[target + 1] = pixels[source + 1] ?? 0
+      raw[target + 2] = pixels[source] ?? 0
+      raw[target + 3] = pixels[source + 3] ?? 0
+    }
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8
+  ihdr[9] = 6
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+  return png.length <= ICON_BYTE_LIMIT ? png : null
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type)
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(pngCrc(Buffer.concat([name, data])))
+  return Buffer.concat([length, name, data, crc])
+}
+
+function pngCrc(buf: Buffer): number {
+  let crc = ~0
+  for (let index = 0; index < buf.length; index += 1) {
+    crc ^= buf[index] ?? 0
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
+  }
+  return ~crc >>> 0
+}
+
 // Bun's own icon is the named group IDI_MYICON. Writing icon id 1 adds a second group, and Explorer keeps the named one.
 export function patchWindowsExeIcon(exe: Buffer, ico: Buffer): Buffer {
   const images = readIco(ico)
   if (images.length === 0) throw new Error('图标里没有图像')
+  return writeIconImages(exe, images)
+}
+
+function writeIconImages(exe: Buffer, images: IconImage[]): Buffer {
   const out = Buffer.from(exe)
   const file = readExe(out)
   const groups = file.leaves.filter((leaf) => leaf.type === RT_GROUP_ICON)

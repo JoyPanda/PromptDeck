@@ -4,7 +4,7 @@ import path from 'node:path'
 import { expect, test } from 'bun:test'
 import { assertReleaseVersion, installerName, releaseTag, windowsFileVersion } from './names'
 import { innoScript, writeAppIcon } from './package'
-import { bunSafeIco, groupIconResource, patchWindowsExeIcon, readIco } from './win-icon'
+import { bunSafeIco, groupIconResource, installWindowsIcon, patchWindowsExeIcon, readIco } from './win-icon'
 import { trayCode, trayData, trayExpect, trayHotkeyError } from '../src/window/tray-win-code'
 
 test('names installers the way a desktop release does', () => {
@@ -80,6 +80,22 @@ test('windows exe keeps the named icon group and replaces its image', () => {
   expect(fitted.includes(small.marker)).toBe(true)
   expect(() => patchWindowsExeIcon(exeWithIconSlot(100).exe, ico)).toThrow(/空位/)
   expect(() => patchWindowsExeIcon(Buffer.from('not an exe'), ico)).toThrow(/可执行文件/)
+})
+
+test('windows exe icon stays inside the size Explorer will load', () => {
+  const ico = readFileSync(path.join('assets', 'PromptDeck.ico'))
+  const images = readIco(ico)
+  const large = images.find((image) => image.bytes.length > 65535)
+  expect(large).toBeTruthy()
+  const base = exeWithIconSlot(large!.bytes.length)
+  const patched = installWindowsIcon(base.exe, ico)
+  expect(patched.length).toBe(base.exe.length)
+  expect(patched.readUInt32LE(0x190)).toBe(base.exe.readUInt32LE(0x190))
+  expect(patched.includes(base.marker)).toBe(true)
+  expect(patched.includes(Buffer.from('IDI_MYICON', 'utf16le'))).toBe(true)
+  expect(patched.includes(large!.bytes)).toBe(false)
+  expect(patched.includes(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))).toBe(true)
+  expect(Buffer.compare(patched, installWindowsIcon(patched, ico))).toBe(0)
 })
 
 test('app icon is a square png', () => {
