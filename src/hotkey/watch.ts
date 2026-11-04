@@ -15,6 +15,9 @@ export function keyIsDown(code: number): boolean {
 }
 
 export function watchHotkey(read: () => Shortcut | null, onFire: () => void): () => void {
+  // Windows delivers the shortcut through RegisterHotKey. The window procedure
+  // shows and focuses the window on WM_HOTKEY, so there is nothing to poll.
+  if (process.platform === 'win32') return () => undefined
   let pressed: (code: number) => boolean
   try {
     pressed = platformProbe()

@@ -684,17 +684,16 @@ export function App() {
 
   useEffect(() => {
     if (!ready) return
-    // Windows shows the window from WM_HOTKEY inside the window procedure.
-    // This poll only asks GPUI to activate; it cannot take the foreground itself.
+    syncWindowsHotkey(settingsRef.current.shortcut)
+    if (process.platform === 'win32') return
     const reveal = () => {
       try {
-        if (process.platform === 'darwin') revealMacTray()
+        revealMacTray()
       } catch {
         // The menu bar item can already be gone.
       }
       renderer.activateWindow?.()
     }
-    syncWindowsHotkey(settingsRef.current.shortcut)
     const stopWatch = watchHotkey(() => settingsRef.current.shortcut, reveal)
     return () => {
       stopWatch()
