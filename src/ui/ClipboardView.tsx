@@ -185,12 +185,12 @@ function ClipboardRow({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, height: '100%' }}>
       <Text color={palette.muted} size={11} lineHeight={caption}>{formatWhen(entry.touchedAt)}</Text>
-      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 8, width: '100%', minWidth: 0 }}>
-        <Button label="复制" fill primary boxHeight={rowHeight} onClick={() => void copy()} />
-        <Tooltip delayDuration={300} style={{ flexGrow: 1, minWidth: 0, alignSelf: 'stretch', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 8, width: '100%', minWidth: 0, height: rowHeight }}>
+        <Button label="复制" fill primary boxHeight={rowHeight} borderColor={palette.line} onClick={() => void copy()} />
+        <Tooltip delayDuration={300} style={{ flexGrow: 1, minWidth: 0, height: rowHeight, alignSelf: 'flex-start' }}>
           <TooltipTrigger asChild>
-            <div testId="clipboard-entry" onMouseEnter={loadHover} style={{ display: 'flex', alignItems: 'center', width: '100%', minWidth: 0, height: rowHeight, paddingLeft: 10, paddingRight: 10, borderWidth: 1, borderColor: palette.line, borderRadius: 6, backgroundColor: palette.panel, overflow: 'hidden', cursor: 'default', userSelect: 'none' }}>
-              <text style={{ ...textStyle(palette.text, scaleFont(12, fontSize), undefined, palette.font), whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', minWidth: 0, lineHeight: rowHeight, pointerEvents: 'none', userSelect: 'none' }}>{entry.preview}</text>
+            <div testId="clipboard-entry" onMouseEnter={loadHover} style={{ display: 'flex', alignItems: 'center', alignSelf: 'flex-start', width: '100%', minWidth: 0, height: rowHeight, paddingLeft: 10, paddingRight: 10, borderWidth: 1, borderColor: palette.line, borderRadius: 6, backgroundColor: palette.panel, overflow: 'hidden', cursor: 'default', userSelect: 'none' }}>
+              <text style={{ ...textStyle(palette.text, scaleFont(rowHeight < 30 ? 12 : 13, fontSize), undefined, palette.font), whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', minWidth: 0, pointerEvents: 'none', userSelect: 'none' }}>{entry.preview}</text>
             </div>
           </TooltipTrigger>
           <TooltipContent key={entry.id} testId="clipboard-tooltip" side="top" sideOffset={6} style={{ backgroundColor: palette.panel, borderWidth: 1, borderColor: palette.line, borderRadius: 4, paddingTop: 8, paddingBottom: 8, paddingLeft: 10, paddingRight: 10, maxWidth: 480, maxHeight: 240, overflow: 'scroll' }}>
@@ -202,6 +202,7 @@ function ClipboardRow({
           fill
           danger
           boxHeight={rowHeight}
+          borderColor={palette.line}
           onClick={() => requestConfirm({
             title: '删除剪贴板记录',
             message: `确定删除「${entry.preview.slice(0, 40)}」？`,

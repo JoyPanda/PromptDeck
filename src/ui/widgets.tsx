@@ -465,6 +465,7 @@ export function Button({
   block = false,
   icon,
   align = 'center',
+  borderColor,
 }: {
   label: string
   onClick: () => void
@@ -477,6 +478,7 @@ export function Button({
   block?: boolean
   icon?: IconName
   align?: 'center' | 'start'
+  borderColor?: string
 }) {
   const { palette, fontSize } = useTheme()
   const metrics = BUTTON_SIZE[size]
@@ -495,12 +497,14 @@ export function Button({
       style={{
         height,
         minHeight: height,
+        ...(height == null ? {} : { maxHeight: height }),
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: align === 'start' ? 'flex-start' : 'center',
         gap: icon ? 8 : 0,
-        alignSelf: fill || block ? 'stretch' : undefined,
+        alignSelf: boxHeight != null ? 'flex-start' : fill || block ? 'stretch' : undefined,
+        flexShrink: 0,
         width: block ? '100%' : undefined,
         paddingTop: 0,
         paddingBottom: 0,
@@ -509,7 +513,7 @@ export function Button({
         borderRadius: 6,
         backgroundColor,
         borderWidth: 1,
-        borderColor: primary ? palette.accent : palette.line,
+        borderColor: borderColor ?? (primary ? palette.accent : palette.line),
         opacity: disabled ? 0.45 : 1,
         cursor: disabled ? 'default' : 'pointer',
         userSelect: 'none',
