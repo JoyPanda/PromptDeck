@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { windowsFileVersion } from './names'
-import { installWindowsIcon } from './win-icon'
+import { installWindowsIcon, stampWindowsIdentity } from './win-icon'
 
 const nativeModules: Record<string, string> = {
   'darwin-arm64': path.join('node_modules', '@gpuix', 'native-darwin-arm64', 'gpuix-native.darwin-arm64.node'),
@@ -56,7 +56,12 @@ if (result.status === 0) {
   try {
     if (target === 'win32-x64') {
       const exePath = path.resolve(outfile)
-      writeFileSync(exePath, installWindowsIcon(readFileSync(exePath), readFileSync(path.resolve('assets', 'PromptDeck.ico'))))
+      const version = windowsFileVersion(JSON.parse(readFileSync('package.json', 'utf8')).version)
+      const stamped = stampWindowsIdentity(installWindowsIcon(readFileSync(exePath), readFileSync(path.resolve('assets', 'PromptDeck.ico'))), {
+        name: 'PromptDeck',
+        version,
+      })
+      writeFileSync(exePath, stamped)
     }
   } finally {
     unlinkSync(asset)

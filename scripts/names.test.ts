@@ -4,7 +4,7 @@ import path from 'node:path'
 import { expect, test } from 'bun:test'
 import { assertReleaseVersion, installerName, releaseTag, windowsFileVersion } from './names'
 import { innoScript, writeAppIcon } from './package'
-import { bunSafeIco, groupIconResource, installWindowsIcon, patchWindowsExeIcon, readIco } from './win-icon'
+import { bunSafeIco, groupIconResource, installWindowsIcon, patchWindowsExeIcon, readIco, stampWindowsIdentity, windowsVersionStrings } from './win-icon'
 import { trayCode, trayData, trayExpect, trayHotkeyError } from '../src/window/tray-win-code'
 
 test('names installers the way a desktop release does', () => {
@@ -98,6 +98,21 @@ test('windows exe icon stays inside the size Explorer will load', () => {
   expect(Buffer.compare(patched, installWindowsIcon(patched, ico))).toBe(0)
 })
 
+test('windows exe is named PromptDeck in the task manager', () => {
+  const patched = stampWindowsIdentity(exeWithBunVersion(), { name: 'PromptDeck', version: '0.9.5.0' })
+  const strings = windowsVersionStrings(patched)
+  expect(strings.FileDescription).toBe('PromptDeck')
+  expect(strings.ProductName).toBe('PromptDeck')
+  expect(strings.InternalName).toBe('PromptDeck')
+  expect(strings.OriginalFilename).toBe('PromptDeck.exe')
+  expect(strings.CompanyName).toBe('PromptDeck')
+  expect(strings.FileVersion).toBe('0.9.5.0')
+  expect(strings.ProductVersion).toBe('0.9.5.0')
+  expect(strings.LegalCopyright).toBe('https://bun.com/docs/project/licensing')
+  expect(Buffer.compare(patched, stampWindowsIdentity(patched, { name: 'PromptDeck', version: '0.9.5.0' }))).toBe(0)
+  expect(() => stampWindowsIdentity(Buffer.from('not an exe'), { name: 'PromptDeck', version: '0.9.5.0' })).toThrow(/可执行文件/)
+})
+
 test('app icon is a square png', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'promptdeck-icon-'))
   const file = path.join(dir, 'PromptDeck.png')
@@ -111,6 +126,64 @@ test('app icon is a square png', () => {
   expect(width).toBeGreaterThanOrEqual(256)
   rmSync(dir, { recursive: true, force: true })
 })
+
+function exeWithBunVersion(): Buffer {
+  const version = bunVersionInfo()
+  const blob = Buffer.alloc(0x200 + version.length)
+  writeResourceDir(blob, 0, [{ id: 16, child: 0x40, dir: true }])
+  writeResourceDir(blob, 0x40, [{ id: 1, child: 0x80, dir: true }])
+  writeResourceDir(blob, 0x80, [{ id: 1033, child: 0xc0, dir: false }])
+  writeDataEntry(blob, 0xc0, 0x1000 + 0x200, version.length)
+  version.copy(blob, 0x200)
+  return wrapPe(blob)
+}
+
+function bunVersionInfo(): Buffer {
+  const fixed = Buffer.alloc(52)
+  fixed.writeUInt32LE(0xfeef04bd, 0)
+  fixed.writeUInt32LE(0x10000, 4)
+  fixed.writeUInt16LE(4, 8)
+  fixed.writeUInt16LE(1, 10)
+  fixed.writeUInt16LE(0, 12)
+  fixed.writeUInt16LE(3, 14)
+  fixed.copy(fixed, 16, 8, 16)
+  const strings = [
+    versionEntry('FileDescription', 'Bun'),
+    versionEntry('FileVersion', '1.4.3'),
+    versionEntry('InternalName', 'bun'),
+    versionEntry('OriginalFilename', 'bun.exe'),
+    versionEntry('ProductName', 'Bun'),
+    versionEntry('ProductVersion', '1.4.3'),
+    versionEntry('CompanyName', 'Oven'),
+    versionEntry('LegalCopyright', 'https://bun.com/docs/project/licensing'),
+  ]
+  const table = versionBlock('040904b0', Buffer.concat(strings))
+  const info = versionBlock('StringFileInfo', table)
+  const translation = Buffer.alloc(4)
+  translation.writeUInt16LE(0x409, 0)
+  translation.writeUInt16LE(0x4b0, 2)
+  const variable = versionBlock('Translation', translation, 4)
+  const vars = versionBlock('VarFileInfo', variable)
+  return versionBlock('VS_VERSION_INFO', Buffer.concat([fixed, info, vars]), fixed.length, 0)
+}
+
+function versionEntry(key: string, value: string): Buffer {
+  const text = Buffer.from(`${value}\0`, 'utf16le')
+  return versionBlock(key, text, text.length / 2)
+}
+
+function versionBlock(key: string, value: Buffer, valueLength = 0, type = 1): Buffer {
+  let body = Buffer.concat([Buffer.alloc(6), Buffer.from(`${key}\0`, 'utf16le')])
+  const aligned = (body.length + 3) & ~3
+  if (aligned !== body.length) body = Buffer.concat([body, Buffer.alloc(aligned - body.length)])
+  body = Buffer.concat([body, value])
+  const end = (body.length + 3) & ~3
+  if (end !== body.length) body = Buffer.concat([body, Buffer.alloc(end - body.length)])
+  body.writeUInt16LE(body.length, 0)
+  body.writeUInt16LE(valueLength, 2)
+  body.writeUInt16LE(type, 4)
+  return body
+}
 
 function exeWithIconSlot(slot: number) {
   const icon = Buffer.alloc(slot, 0xab)
