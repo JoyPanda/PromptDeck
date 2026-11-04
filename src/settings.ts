@@ -9,6 +9,9 @@ export type Appearance = 'system' | 'dark' | 'light'
 export const DEFAULT_HISTORY_LIMIT = 20
 export const MIN_HISTORY_LIMIT = 1
 export const MAX_HISTORY_LIMIT = 200
+export const DEFAULT_CLIPBOARD_LIMIT = 100
+export const MIN_CLIPBOARD_LIMIT = 20
+export const MAX_CLIPBOARD_LIMIT = 500
 export const DEFAULT_FONT_SIZE = 12
 export const MIN_FONT_SIZE = 11
 export const MAX_FONT_SIZE = 20
@@ -17,6 +20,8 @@ export type Settings = {
   appearance: Appearance
   shortcut: Shortcut | null
   historyLimit: number
+  clipboardLimit: number
+  recordOwnClipboard: boolean
   fontFamily: string
   fontSize: number
   closeToTray: boolean
@@ -55,6 +60,8 @@ export function defaultSettings(): Settings {
     appearance: 'system',
     shortcut: defaultShortcut(),
     historyLimit: DEFAULT_HISTORY_LIMIT,
+    clipboardLimit: DEFAULT_CLIPBOARD_LIMIT,
+    recordOwnClipboard: false,
     fontFamily: defaultFontFamily(),
     fontSize: DEFAULT_FONT_SIZE,
     closeToTray: false,
@@ -65,8 +72,16 @@ export function defaultSettings(): Settings {
 }
 
 export function parseHistoryLimit(value: unknown, fallback = DEFAULT_HISTORY_LIMIT): number {
+  return parseBoundedInteger(value, MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT, fallback)
+}
+
+export function parseClipboardLimit(value: unknown, fallback = DEFAULT_CLIPBOARD_LIMIT): number {
+  return parseBoundedInteger(value, MIN_CLIPBOARD_LIMIT, MAX_CLIPBOARD_LIMIT, fallback)
+}
+
+function parseBoundedInteger(value: unknown, min: number, max: number, fallback: number): number {
   const number = typeof value === 'number' ? value : NaN
-  if (!Number.isInteger(number) || number < MIN_HISTORY_LIMIT || number > MAX_HISTORY_LIMIT) return fallback
+  if (!Number.isInteger(number) || number < min || number > max) return fallback
   return number
 }
 
@@ -90,12 +105,26 @@ export function settingsPath(): string {
 export function parseSettings(raw: string): Settings {
   const fallback = defaultSettings()
   try {
-    const parsed = JSON.parse(raw) as { appearance?: unknown; shortcut?: unknown; historyLimit?: unknown; fontFamily?: unknown; fontSize?: unknown; closeToTray?: unknown; autoSync?: unknown; autoCheckUpdates?: unknown; updateLastCheckAt?: unknown }
+    const parsed = JSON.parse(raw) as {
+      appearance?: unknown
+      shortcut?: unknown
+      historyLimit?: unknown
+      clipboardLimit?: unknown
+      recordOwnClipboard?: unknown
+      fontFamily?: unknown
+      fontSize?: unknown
+      closeToTray?: unknown
+      autoSync?: unknown
+      autoCheckUpdates?: unknown
+      updateLastCheckAt?: unknown
+    }
     const appearance = parsed.appearance === 'dark' || parsed.appearance === 'light' || parsed.appearance === 'system' ? parsed.appearance : fallback.appearance
     return {
       appearance,
       shortcut: parseShortcut(parsed.shortcut, fallback.shortcut ?? defaultShortcut()),
       historyLimit: parseHistoryLimit(parsed.historyLimit, fallback.historyLimit),
+      clipboardLimit: parseClipboardLimit(parsed.clipboardLimit, fallback.clipboardLimit),
+      recordOwnClipboard: parsed.recordOwnClipboard === true,
       fontFamily: parseFontFamily(parsed.fontFamily, fallback.fontFamily),
       fontSize: parseFontSize(parsed.fontSize, fallback.fontSize),
       closeToTray: parsed.closeToTray === true,

@@ -1,5 +1,5 @@
 import { useGpuixRequired } from '@gpuix/react'
-import { copyText } from '../clipboard'
+import { copyOwnText } from '../clipboard-copy'
 import type { Slot, Template } from '../templates/parse'
 import { renderPrompt } from '../templates/render'
 import { Button, Dropdown, Field, FocusGroup, Section, Segmented, Text } from './widgets'
@@ -30,7 +30,7 @@ export function UseView({
   async function generate() {
     const snapshot = prompt
     try {
-      await copyText(snapshot, renderer)
+      await copyOwnText(snapshot, renderer)
       onGenerated(snapshot)
       onCopied(missing ? '已复制到剪贴板，还有未填写的槽位' : '已复制到剪贴板')
     } catch (error) {

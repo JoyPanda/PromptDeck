@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useGpuixRequired } from '@gpuix/react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@gpuix/react/tooltip'
-import { copyText } from '../clipboard'
+import { copyOwnText } from '../clipboard-copy'
 import { deleteGeneration, listAllGenerations, listGenerations, type Generation } from '../templates/db'
 import { Button, Text } from './widgets'
 import { scaleFont, textStyle, useTheme } from './theme'
@@ -86,7 +86,7 @@ function HistoryList({
 
   async function copy(prompt: string) {
     try {
-      await copyText(prompt, renderer)
+      await copyOwnText(prompt, renderer)
       onCopied('已复制到剪贴板')
     } catch (error) {
       onCopied(error instanceof Error ? error.message : '复制失败')

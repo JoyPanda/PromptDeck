@@ -1,21 +1,24 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from '@gpuix/react/tooltip'
 import type { IconName } from './icons'
 import { Icon } from './icons'
 import { Pressable } from './widgets'
-import { useTheme } from './theme'
+import { textStyle, useTheme } from './theme'
 
 export function ActivityBar({
   active,
   busy,
   canSync,
   onLibrary,
+  onClipboard,
   onHistory,
   onSync,
   onSettings,
 }: {
-  active: 'library' | 'history' | 'settings'
+  active: 'library' | 'clipboard' | 'history' | 'settings'
   busy: boolean
   canSync: boolean
   onLibrary: () => void
+  onClipboard: () => void
   onHistory: () => void
   onSync: () => void
   onSettings: () => void
@@ -40,6 +43,7 @@ export function ActivityBar({
       }}
     >
       <RailButton testId="open-library" icon="library" label="模板" selected={active === 'library'} onClick={onLibrary} />
+      <RailButton testId="open-clipboard" icon="clipboard" label="剪贴板" selected={active === 'clipboard'} onClick={onClipboard} />
       <RailButton testId="open-history" icon="history" label="历史" selected={active === 'history'} onClick={onHistory} />
       <div style={{ flexGrow: 1 }} />
       <RailButton testId="pull-repo" icon="sync" label="同步" disabled={busy || !canSync} onClick={onSync} />
@@ -65,28 +69,35 @@ function RailButton({
 }) {
   const { palette } = useTheme()
   return (
-    <Pressable
-      testId={testId}
-      role="button"
-      ariaLabel={label}
-      disabled={disabled}
-      onPress={onClick}
-      style={{
-        width: 36,
-        height: 36,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        borderRadius: 8,
-        backgroundColor: selected ? palette.selected : 'transparent',
-        opacity: disabled ? 0.45 : 1,
-        cursor: disabled ? 'default' : 'pointer',
-        hover: disabled || selected ? undefined : { backgroundColor: palette.hover },
-        active: disabled ? undefined : { backgroundColor: selected ? palette.selectedPress : palette.press },
-      }}
-    >
-      <Icon name={icon} color={selected ? palette.text : palette.muted} size={20} />
-    </Pressable>
+    <Tooltip delayDuration={400} style={{ width: 36, height: 36, flexShrink: 0 }}>
+      <TooltipTrigger asChild>
+        <Pressable
+          testId={testId}
+          role="button"
+          ariaLabel={label}
+          disabled={disabled}
+          onPress={onClick}
+          style={{
+            width: 36,
+            height: 36,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            borderRadius: 8,
+            backgroundColor: selected ? palette.selected : 'transparent',
+            opacity: disabled ? 0.45 : 1,
+            cursor: disabled ? 'default' : 'pointer',
+            hover: disabled || selected ? undefined : { backgroundColor: palette.hover },
+            active: disabled ? undefined : { backgroundColor: selected ? palette.selectedPress : palette.press },
+          }}
+        >
+          <Icon name={icon} color={selected ? palette.text : palette.muted} size={20} />
+        </Pressable>
+      </TooltipTrigger>
+      <TooltipContent testId="activity-tooltip" side="right" sideOffset={8} style={{ backgroundColor: palette.panel, borderWidth: 1, borderColor: palette.line, borderRadius: 4, paddingTop: 4, paddingBottom: 4, paddingLeft: 8, paddingRight: 8 }}>
+        <text style={{ ...textStyle(palette.text, 12, undefined, palette.font), whiteSpace: 'nowrap', pointerEvents: 'none' }}>{label}</text>
+      </TooltipContent>
+    </Tooltip>
   )
 }

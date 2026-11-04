@@ -1,0 +1,36 @@
+import { describe, expect, test } from 'bun:test'
+import { clipboardHoverText, clipboardPreview, maskClipboardSecrets } from './clipboard-secret'
+
+describe('clipboard secrets', () => {
+  test('masks known keys, tokens, and private keys, then truncates the preview', () => {
+    expect(maskClipboardSecrets('sk-proj-abcdefghijklmnopqrstuvwxyz123456')).toContain('****')
+    expect(maskClipboardSecrets('sk-proj-abcdefghijklmnopqrstuvwxyz123456')).not.toContain('abcdefghijklmnopqrstuvwxyz123456')
+    expect(maskClipboardSecrets('api_key=abcdefghijklmnop')).toContain('api_key=')
+    expect(maskClipboardSecrets('api_key=abcdefghijklmnop')).not.toContain('abcdefghijklmnop')
+    expect(maskClipboardSecrets('-----BEGIN PRIVATE KEY-----\nsecret-body\n-----END PRIVATE KEY-----')).not.toContain('secret-body')
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'
+    expect(maskClipboardSecrets(jwt)).not.toContain('dozjgNryP4J3jVmNHl0w5N')
+    expect(maskClipboardSecrets('hunter2')).toBe('hunter2')
+    expect(maskClipboardSecrets('ada@example.com')).toBe('ada@example.com')
+    expect(maskClipboardSecrets('https://example.com/a')).toBe('https://example.com/a')
+    expect(maskClipboardSecrets('13812345678')).toBe('13812345678')
+    expect(maskClipboardSecrets(`secret_key=${'abc'.repeat(6)}==`)).not.toContain(`${'abc'.repeat(6)}==`)
+    expect(maskClipboardSecrets('api_key=abc:defghijklmnop')).not.toContain('abc:defghijklmnop')
+    expect(maskClipboardSecrets('{"api_key": "my secret phrase here"}')).not.toContain('my secret phrase here')
+    expect(maskClipboardSecrets(`Bearer ${'a'.repeat(20)}==`)).not.toContain(`${'a'.repeat(20)}==`)
+    expect(maskClipboardSecrets('OPENAI_API_KEY=abcdefghijklmnop')).not.toContain('abcdefghijklmnop')
+    expect(maskClipboardSecrets('https://x.com/?access_token=abcdefghijklmnop')).not.toContain('abcdefghijklmnop')
+    expect(maskClipboardSecrets('x-api-key: abcdefghijklmnop')).not.toContain('abcdefghijklmnop')
+    expect(maskClipboardSecrets('api_key=abcdefghi')).not.toContain('abcdefghi')
+    expect(maskClipboardSecrets('token=abcdefghijklmnop')).not.toContain('abcdefghijklmnop')
+    expect(maskClipboardSecrets(`bearer ${'b'.repeat(20)}`)).not.toContain('b'.repeat(20))
+    expect(maskClipboardSecrets(`ghp_${'c'.repeat(20)}`)).not.toContain('c'.repeat(20))
+    expect(maskClipboardSecrets('https://x.com/?access_token=abcdefghijklmnop&user=bob')).toContain('user=bob')
+    expect(maskClipboardSecrets('password=hunter2')).toBe('password=hunter2')
+    expect(maskClipboardSecrets('https://example.com/a')).toBe('https://example.com/a')
+    const preview = clipboardPreview(`api_key=${'a'.repeat(40)}\n${'word '.repeat(80)}`)
+    expect(preview).not.toContain('a'.repeat(40))
+    expect(preview.includes('\n')).toBe(false)
+    expect(clipboardHoverText(`line\n${'x'.repeat(5000)}`).length).toBeLessThan(4100)
+  })
+})

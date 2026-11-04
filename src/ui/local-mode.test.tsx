@@ -7,7 +7,7 @@ import path from 'node:path'
 import { createTestRoot, hasNativeTestRenderer, type TestElement, type TestRenderer } from '@gpuix/react/testing'
 import { App } from '../app'
 import { appVersion } from '../version'
-import { closeLocalDatabase, listLocalTemplates, saveLocalTemplate } from '../templates/db'
+import { acceptClipboardText, closeLocalDatabase, listLocalTemplates, saveLocalTemplate } from '../templates/db'
 import { ThemeProvider } from './theme'
 import { Field, FocusGroup } from './widgets'
 
@@ -27,7 +27,7 @@ test.serial.skipIf(!hasNativeTestRenderer || process.env.CI === 'true')('starts 
   process.env.PROMPTDECK_DATA_DIR = dir
   const { renderer, render, unmount } = createTestRoot({ width: 1120, height: 760 })
   try {
-    render(<App />)
+    render(<App watchClipboard={false} />)
     await waitFor(renderer, '仅保存在本机')
     expect(renderer.findByText('同步到 Git')).toBeUndefined()
 
@@ -332,6 +332,61 @@ test.serial.skipIf(!hasNativeTestRenderer || process.env.CI === 'true')('starts 
   }
 })
 
+test.serial.skipIf(!hasNativeTestRenderer)('activity buttons show their names on hover', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'promptdeck-rail-'))
+  roots.push(dir)
+  process.env.PROMPTDECK_DATA_DIR = dir
+  const { renderer, render, unmount } = createTestRoot({ width: 1120, height: 760 })
+  try {
+    render(<App watchClipboard={false} />)
+    await waitFor(renderer, '仅保存在本机')
+    for (const [testId, label] of [['open-library', '模板'], ['open-clipboard', '剪贴板'], ['open-history', '历史'], ['pull-repo', '同步'], ['open-settings', '设置']] as const) {
+      const button = renderer.findByTestId(testId)
+      const box = button ? renderer.getElementBounds(button.id) : null
+      if (!box) throw new Error(`找不到${label}按钮`)
+      renderer.nativeSimulateMouseMove(0, 0)
+      renderer.flush()
+      renderer.nativeSimulateMouseMove(box.x + box.width / 2, box.y + box.height / 2)
+      await waitForActivityTooltip(renderer, label)
+      renderer.nativeSimulateMouseMove(0, 0)
+      await waitForGoneTestId(renderer, 'activity-tooltip')
+    }
+  } finally {
+    unmount()
+  }
+})
+
+test.serial.skipIf(!hasNativeTestRenderer)('clipboard panel masks secrets and confirms a single delete', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'promptdeck-clip-ui-'))
+  roots.push(dir)
+  process.env.PROMPTDECK_DATA_DIR = dir
+  acceptClipboardText('api_key=abcdefghijklmnop', 100)
+  acceptClipboardText('普通句子', 100)
+  const { renderer, render, unmount } = createTestRoot({ width: 1120, height: 760 })
+  try {
+    render(<App watchClipboard={false} />)
+    await waitFor(renderer, '仅保存在本机')
+    clickTestId(renderer, 'open-clipboard')
+    await waitFor(renderer, '剪贴板历史')
+    await waitFor(renderer, '普通句子')
+    const shown = renderer.getAllText().join('\n')
+    expect(shown).toContain('****')
+    expect(shown).not.toContain('abcdefghijklmnop')
+    expect(renderer.findByType('div').filter((item) => item.testId === 'clipboard-entry')).toHaveLength(2)
+    click(renderer, '删除')
+    await waitFor(renderer, '确定删除「普通句子」')
+    click(renderer, '取消')
+    await waitFor(renderer, '普通句子')
+    clickTestId(renderer, 'open-settings')
+    await waitFor(renderer, '跟随系统')
+    click(renderer, '通用')
+    await waitFor(renderer, '剪贴板保留条数')
+    await waitFor(renderer, '记录自己的写入')
+  } finally {
+    unmount()
+  }
+})
+
 test.serial.skipIf(!hasNativeTestRenderer)('sidebar rows keep one height and truncate overflow', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'promptdeck-rows-'))
   roots.push(dir)
@@ -362,7 +417,7 @@ test.serial.skipIf(!hasNativeTestRenderer)('sidebar rows keep one height and tru
   })
   const { renderer, render, unmount } = createTestRoot({ width: 1120, height: 760 })
   try {
-    render(<App />)
+    render(<App watchClipboard={false} />)
     await waitFor(renderer, '短标题')
     await waitFor(renderer, longTitle)
     const rows = renderer.findByType('div').filter((item) => item.testId === 'sidebar-item')
@@ -451,6 +506,25 @@ function containsText(renderer: TestRenderer, id: number, text: string): boolean
   if (!element) return false
   if (element.text === text) return true
   return element.children.some((child) => containsText(renderer, child, text))
+}
+
+async function waitForActivityTooltip(renderer: TestRenderer, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    renderer.flush()
+    const tip = renderer.findByTestId('activity-tooltip')
+    if (tip && renderer.findByType('text').some((item) => item.text === label && hasAncestor(renderer, item, tip.id))) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`活动栏没有出现「${label}」`)
+}
+
+function hasAncestor(renderer: TestRenderer, element: TestElement, ancestorId: number): boolean {
+  let current: TestElement | undefined = element
+  while (current) {
+    if (current.id === ancestorId) return true
+    current = current.parentId == null ? undefined : renderer.getElement(current.parentId)
+  }
+  return false
 }
 
 async function waitForTestId(renderer: TestRenderer, testId: string): Promise<void> {

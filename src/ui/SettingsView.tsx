@@ -8,7 +8,7 @@ import { formatShortcut, isBindableKey, isModifierKey, shortcutFromEvent, type S
 import { keyIsDown, setHotkeySuspended } from '../hotkey/watch'
 import type { AuthMode, Provider } from '../git/remote'
 import { normalizeRemoteUrl } from '../git/remote'
-import { fontChoices, fontSizeChoices, MAX_FONT_SIZE, MAX_HISTORY_LIMIT, MIN_FONT_SIZE, MIN_HISTORY_LIMIT, parseFontFamily, parseFontSize, parseHistoryLimit, type Appearance } from '../settings'
+import { fontChoices, fontSizeChoices, MAX_CLIPBOARD_LIMIT, MAX_FONT_SIZE, MAX_HISTORY_LIMIT, MIN_CLIPBOARD_LIMIT, MIN_FONT_SIZE, MIN_HISTORY_LIMIT, parseClipboardLimit, parseFontFamily, parseFontSize, parseHistoryLimit, type Appearance } from '../settings'
 import type { UpdatePhase } from '../update/check'
 import { appVersion } from '../version'
 import { Icon, type IconName } from './icons'
@@ -23,6 +23,8 @@ export function SettingsView({
   fontSize,
   shortcut,
   historyLimit,
+  clipboardLimit,
+  recordOwnClipboard,
   closeToTray,
   autoSync,
   autoCheckUpdates,
@@ -42,6 +44,8 @@ export function SettingsView({
   onFontSize,
   onShortcut,
   onHistoryLimit,
+  onClipboardLimit,
+  onRecordOwnClipboard,
   onCloseToTray,
   onAutoSync,
   onAutoCheckUpdates,
@@ -58,6 +62,8 @@ export function SettingsView({
   fontSize: number
   shortcut: Shortcut | null
   historyLimit: number
+  clipboardLimit: number
+  recordOwnClipboard: boolean
   closeToTray: boolean
   autoSync: boolean
   autoCheckUpdates: boolean
@@ -77,6 +83,8 @@ export function SettingsView({
   onFontSize: (fontSize: number) => void
   onShortcut: (shortcut: Shortcut | null) => void
   onHistoryLimit: (limit: number) => void
+  onClipboardLimit: (limit: number) => void
+  onRecordOwnClipboard: (enabled: boolean) => void
   onCloseToTray: (enabled: boolean) => void
   onAutoSync: (enabled: boolean) => void
   onAutoCheckUpdates: (enabled: boolean) => void
@@ -112,6 +120,8 @@ export function SettingsView({
   const [authorEmail, setAuthorEmail] = useState(config?.authorEmail ?? '')
   const [localError, setLocalError] = useState('')
   const [limitText, setLimitText] = useState(String(historyLimit))
+  const [clipboardText, setClipboardText] = useState(String(clipboardLimit))
+  const onClipboardLimitRef = useRef(onClipboardLimit)
   const [fontText, setFontText] = useState(fontFamily)
   const [sizeText, setSizeText] = useState(String(fontSize))
   const shownError = localError || error
@@ -123,6 +133,24 @@ export function SettingsView({
   useEffect(() => {
     setLimitText(String(historyLimit))
   }, [historyLimit])
+
+  useEffect(() => {
+    setClipboardText(String(clipboardLimit))
+  }, [clipboardLimit])
+
+  useEffect(() => {
+    onClipboardLimitRef.current = onClipboardLimit
+  }, [onClipboardLimit])
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (!/^\d+$/.test(clipboardText)) return
+      const next = parseClipboardLimit(Number(clipboardText), -1)
+      if (next === -1 || next === clipboardLimit) return
+      onClipboardLimitRef.current(next)
+    }, 800)
+    return () => clearTimeout(handle)
+  }, [clipboardText, clipboardLimit])
 
   useEffect(() => {
     setFontText(fontFamily)
@@ -242,6 +270,23 @@ export function SettingsView({
               }}
             />
             <Text color={palette.faint} size={11} wrap>{`填写 ${MIN_HISTORY_LIMIT} 到 ${MAX_HISTORY_LIMIT}。超出后丢掉该模板最早的记录。`}</Text>
+            <Field
+              label="剪贴板保留条数"
+              value={clipboardText}
+              onChange={setClipboardText}
+            />
+            <Text color={palette.faint} size={11} wrap>{`填写 ${MIN_CLIPBOARD_LIMIT} 到 ${MAX_CLIPBOARD_LIMIT}。停顿后生效，超出后丢掉最早的剪贴板记录。`}</Text>
+            <Text color={palette.muted} size={12}>记录自己的写入</Text>
+            <Segmented
+              block
+              value={recordOwnClipboard ? 'on' : 'off'}
+              onChange={(id) => onRecordOwnClipboard(id === 'on')}
+              options={[
+                { id: 'off', label: '关闭' },
+                { id: 'on', label: '开启' },
+              ]}
+            />
+            <Text color={palette.faint} size={11} wrap>关闭时，本程序复制出去的文字不会进入剪贴板历史，也不会改变已有记录的顺序。</Text>
             <Text color={palette.muted} size={12}>关闭窗口</Text>
             <Segmented
               block

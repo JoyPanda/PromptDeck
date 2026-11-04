@@ -1,4 +1,4 @@
-export type IconName = 'plus' | 'search' | 'star' | 'folder' | 'sort' | 'chevron-down' | 'download' | 'settings' | 'sliders' | 'palette' | 'keyboard' | 'sync' | 'info' | 'check' | 'x' | 'eye' | 'eye-off' | 'library' | 'history'
+export type IconName = 'plus' | 'search' | 'star' | 'folder' | 'sort' | 'chevron-down' | 'download' | 'settings' | 'sliders' | 'palette' | 'keyboard' | 'sync' | 'info' | 'check' | 'x' | 'eye' | 'eye-off' | 'library' | 'history' | 'clipboard'
 
 const PATHS: Record<IconName, string> = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
@@ -20,6 +20,7 @@ const PATHS: Record<IconName, string> = {
   'eye-off': '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   library: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+  clipboard: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
 }
 
 export function Icon({

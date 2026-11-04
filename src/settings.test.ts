@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { macPrefersDark, windowsPrefersDark } from './ui/appearance'
-import { defaultSettings, parseSettings } from './settings'
+import { defaultSettings, parseClipboardLimit, parseSettings } from './settings'
 
 describe('parseSettings', () => {
   test('accepts the three appearances and falls back otherwise', () => {
@@ -39,6 +39,21 @@ describe('update check', () => {
     expect(parseSettings('{"autoCheckUpdates":"false"}').autoCheckUpdates).toBe(true)
     expect(parseSettings('{"updateLastCheckAt":"2026-10-21T00:00:00.000Z"}').updateLastCheckAt).toBe('2026-10-21T00:00:00.000Z')
     expect(parseSettings('{"updateLastCheckAt":1}').updateLastCheckAt).toBe('')
+  })
+})
+
+describe('clipboard settings', () => {
+  test('keeps a separate limit and records own copies only when enabled', () => {
+    expect(parseSettings('{}').clipboardLimit).toBe(100)
+    expect(parseSettings('{}').recordOwnClipboard).toBe(false)
+    expect(parseSettings('{"clipboardLimit":20,"recordOwnClipboard":true}')).toEqual({ ...defaultSettings(), clipboardLimit: 20, recordOwnClipboard: true })
+    expect(parseSettings('{"clipboardLimit":500}')).toEqual({ ...defaultSettings(), clipboardLimit: 500 })
+    expect(parseClipboardLimit(19)).toBe(100)
+    expect(parseClipboardLimit(501)).toBe(100)
+    expect(parseClipboardLimit(20.5)).toBe(100)
+    expect(parseClipboardLimit(Number(''))).toBe(100)
+    expect(parseClipboardLimit(100)).toBe(100)
+    expect(parseSettings('{"recordOwnClipboard":"true"}').recordOwnClipboard).toBe(false)
   })
 })
 

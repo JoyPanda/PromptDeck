@@ -5,7 +5,9 @@ import { loadConfig, repoDir, sameRemote, saveConfig, type AppConfig } from './g
 import { cloneKeepingLocalPrompts, commitAndPush, commitMessage, readSyncStatus, syncLibrary, SyncError, type SyncStatus } from './git/sync'
 import { removeTombstone, tombstoneRelativePath, writeTombstone } from './templates/library'
 import { blankTemplate, defaultValues, ensureSlots, isTemplateDirty, validateTemplate, type Template } from './templates/parse'
-import { appendGeneration, deleteLocalTemplate, exportLocalTemplates, importRepoTemplates, listLocalTemplates, migrateFilesIfEmpty, saveLocalTemplate, trimAllGenerations } from './templates/db'
+import { appendGeneration, applyLoadedClipboardLimit, deleteLocalTemplate, exportLocalTemplates, importRepoTemplates, listLocalTemplates, migrateFilesIfEmpty, saveLocalTemplate, trimAllGenerations } from './templates/db'
+import { setClipboardCopySettings } from './clipboard-copy'
+import { startClipboardWatch } from './clipboard-watch'
 import { deleteTemplateFile, relativeTemplatePath, saveTemplate } from './templates/store'
 import { useGpuixRequired } from '@gpuix/react'
 import { syncWindowsHotkey } from './hotkey/win-hotkey'
@@ -21,6 +23,7 @@ import { openReleasesPage } from './update/open'
 import { releasesPageUrl } from './update/repo'
 import { EditorView } from './ui/EditorView'
 import { GlobalHistoryView, HistoryView } from './ui/HistoryView'
+import { ClipboardView } from './ui/ClipboardView'
 import { SettingsView } from './ui/SettingsView'
 import { Sidebar } from './ui/Sidebar'
 import { UseView } from './ui/UseView'
@@ -30,7 +33,7 @@ import { ConfirmDialog, PanelScroll, ResizeScope, Tabs, Text, Toast, UpdatePromp
 import { ThemeProvider, useTheme } from './ui/theme'
 import { installCloseGuard, requestWindowClose } from './window/close-guard'
 
-type Phase = 'loading' | 'settings' | 'history' | 'main'
+type Phase = 'loading' | 'settings' | 'history' | 'clipboard' | 'main'
 type Mode = 'use' | 'edit' | 'history'
 
 function errorText(error: unknown): string {
@@ -492,12 +495,16 @@ function Workspace({
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', width: '100%', backgroundColor: palette.bg }}>
       <div style={{ display: 'flex', flexDirection: 'row', flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0, minWidth: 0 }}>
       <ActivityBar
-        active={phase === 'settings' ? 'settings' : phase === 'history' ? 'history' : 'library'}
+        active={phase === 'settings' ? 'settings' : phase === 'history' ? 'history' : phase === 'clipboard' ? 'clipboard' : 'library'}
         busy={busy}
         canSync={status !== null}
         onLibrary={() => {
           notify('')
           setPhase('main')
+        }}
+        onClipboard={() => {
+          notify('')
+          setPhase('clipboard')
         }}
         onHistory={() => {
           notify('')
@@ -521,6 +528,8 @@ function Workspace({
             appearance={settings.appearance}
             shortcut={settings.shortcut}
             historyLimit={settings.historyLimit}
+            clipboardLimit={settings.clipboardLimit}
+            recordOwnClipboard={settings.recordOwnClipboard}
             closeToTray={settings.closeToTray}
             autoSync={settings.autoSync}
             autoCheckUpdates={settings.autoCheckUpdates}
@@ -542,6 +551,8 @@ function Workspace({
             onFontSize={(fontSize) => onChangeSettings({ fontSize })}
             onShortcut={(shortcut) => onChangeSettings({ shortcut })}
             onHistoryLimit={(historyLimit) => onChangeSettings({ historyLimit })}
+            onClipboardLimit={(clipboardLimit) => onChangeSettings({ clipboardLimit })}
+            onRecordOwnClipboard={(recordOwnClipboard) => onChangeSettings({ recordOwnClipboard })}
             onCloseToTray={(closeToTray) => onChangeSettings({ closeToTray })}
             onAutoSync={(autoSync) => {
               settingsRef.current = { ...settingsRef.current, autoSync }
@@ -561,6 +572,8 @@ function Workspace({
             }}
           />
         </div>
+      ) : phase === 'clipboard' ? (
+        <ClipboardView onCopied={notify} requestConfirm={setConfirm} />
       ) : phase === 'history' ? (
         <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0, height: '100%' }}>
           <PanelScroll testId="history-scroll">
@@ -666,7 +679,7 @@ function Workspace({
   )
 }
 
-export function App() {
+export function App({ watchClipboard = true }: { watchClipboard?: boolean } = {}) {
   const renderer = useGpuixRequired()
   const [settings, setSettings] = useState<Settings>(defaultSettings)
   const [ready, setReady] = useState(false)
@@ -704,6 +717,26 @@ export function App() {
     if (!ready) return
     syncWindowsHotkey(settings.shortcut)
   }, [ready, settings.shortcut])
+
+  useEffect(() => {
+    if (!ready) return
+    applyLoadedClipboardLimit(true, settings.clipboardLimit)
+  }, [ready, settings.clipboardLimit])
+
+  useEffect(() => {
+    setClipboardCopySettings(() => ({
+      recordOwn: settingsRef.current.recordOwnClipboard,
+      limit: settingsRef.current.clipboardLimit,
+    }))
+  }, [])
+
+  useEffect(() => {
+    if (!ready || !watchClipboard) return
+    return startClipboardWatch(() => ({
+      clipboardLimit: settingsRef.current.clipboardLimit,
+      recordOwnClipboard: settingsRef.current.recordOwnClipboard,
+    }))
+  }, [ready, watchClipboard])
 
   function changeSettings(patch: Partial<Settings>) {
     const next = { ...settingsRef.current, ...patch }

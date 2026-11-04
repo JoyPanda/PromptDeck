@@ -1,6 +1,6 @@
 import { motion, useGpuixRequired, type EventPayload, type PublicInstance, type StyleDesc } from '@gpuix/react'
 import { FloatingLayer } from '@gpuix/react/floating'
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import { DEFAULT_FONT_SIZE } from '../settings'
 import { Icon, type IconName } from './icons'
 import { applySecretEdit, maskSecret } from './secret-field'
@@ -21,6 +21,11 @@ function leftButton(event: EventPayload): boolean {
   return event.button == null || event.button === 0
 }
 
+function assignRef(target: Ref<PublicInstance> | undefined, instance: PublicInstance | null) {
+  if (typeof target === 'function') target(instance)
+  else if (target) target.current = instance
+}
+
 /** 只有按下和松开都落在这个控件上才算一次点击。 */
 export function Pressable({
   onPress,
@@ -35,6 +40,7 @@ export function Pressable({
   onMouseEnter,
   onMouseLeave,
   nodeRef,
+  ref,
 }: {
   onPress: () => void
   disabled?: boolean
@@ -48,11 +54,15 @@ export function Pressable({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   nodeRef?: RefObject<PublicInstance | null>
+  ref?: Ref<PublicInstance>
 }) {
   const pressed = useRef(false)
   return (
     <div
-      ref={nodeRef}
+      ref={(instance) => {
+        assignRef(nodeRef, instance)
+        assignRef(ref, instance)
+      }}
       testId={testId}
       role={role}
       aria-label={ariaLabel}
@@ -222,7 +232,17 @@ export function UpdatePrompt({ version, raised = false, onDownload, onLater }: {
   )
 }
 
-export function PanelScroll({ children, testId }: { children: ReactNode; testId?: string }) {
+export function PanelScroll({
+  children,
+  testId,
+  resetKey = 0,
+  scrollDelta = null,
+}: {
+  children: ReactNode | ((metrics: { scrollTop: number; viewport: number }) => ReactNode)
+  testId?: string
+  resetKey?: number
+  scrollDelta?: { id: number; delta: number } | null
+}) {
   const renderer = useGpuixRequired()
   const { palette } = useTheme()
   const scrollerRef = useRef<PublicInstance | null>(null)
@@ -283,6 +303,31 @@ export function PanelScroll({ children, testId }: { children: ReactNode; testId?
     scheduleMetrics()
   }
 
+  const appliedReset = useRef(0)
+  const appliedDelta = useRef(0)
+  useEffect(() => {
+    if (resetKey === appliedReset.current) return
+    appliedReset.current = resetKey
+    const scroller = scrollerRef.current
+    if (!scroller || !renderer.scrollTo) return
+    renderer.scrollTo(scroller.id, 0, 0)
+    scheduleMetrics()
+  }, [resetKey, renderer])
+  useEffect(() => {
+    if (!scrollDelta || scrollDelta.id === appliedDelta.current) return
+    appliedDelta.current = scrollDelta.id
+    const scroller = scrollerRef.current
+    if (!scroller || !renderer.scrollTo) return
+    const measured = readMetrics()
+    const current = measured?.scrollTop ?? 0
+    const limit = measured ? Math.max(0, measured.content - measured.viewport) : Number.POSITIVE_INFINITY
+    const next = Math.min(limit, Math.max(0, current + scrollDelta.delta))
+    renderer.scrollTo(scroller.id, 0, -next)
+    scheduleMetrics()
+  }, [scrollDelta, renderer])
+
+  const body = typeof children === 'function' ? children({ scrollTop: metrics.scrollTop, viewport: metrics.viewport }) : children
+
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, minHeight: 0 }}>
       <div
@@ -292,7 +337,7 @@ export function PanelScroll({ children, testId }: { children: ReactNode; testId?
         style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, overflowY: 'scroll', overflowX: 'hidden' }}
       >
         <div ref={contentRef} style={{ display: 'flex', flexDirection: 'column', flexShrink: 0, width: '100%', minWidth: 0, paddingRight: overflow ? 14 : 0 }}>
-          {children}
+          {body}
         </div>
       </div>
       {overflow ? (

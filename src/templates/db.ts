@@ -1,6 +1,8 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { clipboardPreview } from '../clipboard-secret'
+import { clipboardTextHash, clipboardTextTooLong, normalizeClipboardText } from '../clipboard-text'
 import { dataDir } from '../git/config'
 import { normalizeSlot, type Template } from './parse'
 import { listTemplates, saveTemplate } from './store'
@@ -45,6 +47,24 @@ function database(): Database {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS generations_template ON generations (template_id, id)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS clipboard_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      norm_hash TEXT NOT NULL,
+      search_text TEXT NOT NULL,
+      preview TEXT NOT NULL,
+      touched_at INTEGER NOT NULL
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS clipboard_items_hash ON clipboard_items (norm_hash)')
+  db.exec('CREATE INDEX IF NOT EXISTS clipboard_items_touched ON clipboard_items (touched_at DESC, id DESC)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS clipboard_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `)
   ensureTemplateColumns(db)
   opened = { dir, db }
   return db
@@ -269,6 +289,103 @@ function slotsFromJson(raw: string): Template['slots'] {
   } catch {
     return []
   }
+}
+
+export type ClipboardEntry = {
+  id: number
+  touchedAt: number
+  preview: string
+}
+
+type ClipboardRow = {
+  id: number
+  text: string
+  norm_hash: string
+  touched_at: number
+  preview: string
+}
+
+type ClipboardListRow = {
+  id: number
+  touched_at: number
+  preview: string
+}
+
+export function listClipboardEntries(query = ''): ClipboardEntry[] {
+  const needle = normalizeClipboardText(query).toLowerCase()
+  const rows = needle
+    ? database().query<ClipboardListRow, [string]>(
+      `SELECT id, touched_at, preview FROM clipboard_items
+       WHERE instr(search_text, ?) > 0
+       ORDER BY touched_at DESC, id DESC`,
+    ).all(needle)
+    : database().query<ClipboardListRow, []>(
+      'SELECT id, touched_at, preview FROM clipboard_items ORDER BY touched_at DESC, id DESC',
+    ).all()
+  return rows.map((row) => ({ id: row.id, touchedAt: row.touched_at, preview: row.preview }))
+}
+
+export function clipboardItemText(id: number): string | null {
+  const row = database().query<{ text: string }, [number]>('SELECT text FROM clipboard_items WHERE id = ?').get(id)
+  return row?.text ?? null
+}
+
+export function acceptClipboardText(text: string, limit: number): 'inserted' | 'bumped' | 'ignored' {
+  if (!text.trim() || clipboardTextTooLong(text)) return 'ignored'
+  const db = database()
+  const hash = clipboardTextHash(text)
+  const normalized = normalizeClipboardText(text)
+  const candidates = db.query<ClipboardRow, [string]>('SELECT id, text, norm_hash, touched_at, preview FROM clipboard_items WHERE norm_hash = ?').all(hash)
+  const existing = candidates.find((row) => normalizeClipboardText(row.text) === normalized)
+  const touchedAt = nextClipboardTimestamp(db)
+  const preview = clipboardPreview(text)
+  const search = normalized.toLowerCase()
+  if (existing) {
+    db.query('UPDATE clipboard_items SET text = ?, search_text = ?, preview = ?, touched_at = ? WHERE id = ?').run(text, search, preview, touchedAt, existing.id)
+  } else {
+    db.query('INSERT INTO clipboard_items (text, norm_hash, search_text, preview, touched_at) VALUES (?, ?, ?, ?, ?)').run(text, hash, search, preview, touchedAt)
+  }
+  trimClipboardItems(limit)
+  return existing ? 'bumped' : 'inserted'
+}
+
+export function deleteClipboardItem(id: number): void {
+  database().query('DELETE FROM clipboard_items WHERE id = ?').run(id)
+}
+
+export function trimClipboardItems(limit: number): void {
+  database().query(
+    `DELETE FROM clipboard_items
+     WHERE id NOT IN (
+       SELECT id FROM clipboard_items ORDER BY touched_at DESC, id DESC LIMIT ?
+     )`,
+  ).run(limit)
+}
+
+export function applyLoadedClipboardLimit(ready: boolean, limit: number): void {
+  if (!ready) return
+  trimClipboardItems(limit)
+}
+
+export function lastOwnClipboardHash(): string | null {
+  const row = database().query<{ value: string }, [string]>('SELECT value FROM clipboard_meta WHERE key = ?').get('last_own_hash')
+  return row?.value ?? null
+}
+
+export function setLastOwnClipboardHash(hash: string): void {
+  database().query(
+    `INSERT INTO clipboard_meta (key, value) VALUES ('last_own_hash', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(hash)
+}
+
+export function clearLastOwnClipboardHash(): void {
+  database().query("DELETE FROM clipboard_meta WHERE key = 'last_own_hash'").run()
+}
+
+function nextClipboardTimestamp(db: Database): number {
+  const row = db.query<{ t: number | null }, []>('SELECT MAX(touched_at) AS t FROM clipboard_items').get()
+  return Math.max(Date.now(), (row?.t ?? 0) + 1)
 }
 
 function tagsFromJson(raw: string): string[] {
