@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from 'bun:test'
-import { assertReleaseVersion, installerName, releaseTag } from './names'
+import { assertReleaseVersion, installerName, releaseTag, windowsFileVersion } from './names'
 import { innoScript, writeAppIcon } from './package'
 import { bunSafeIco, groupIconResource, patchWindowsExeIcon, readIco } from './win-icon'
 import { trayCode, trayData, trayExpect, trayHotkeyError } from '../src/window/tray-win-code'
@@ -17,6 +17,9 @@ test('names installers the way a desktop release does', () => {
   expect(releaseTag('v0.1.0')).toBe('v0.1.0')
   expect(assertReleaseVersion('0.1.0')).toBe('v0.1.0')
   expect(() => assertReleaseVersion('0.1')).toThrow(/v1\.2\.3/)
+  expect(windowsFileVersion('0.9.1')).toBe('0.9.1.0')
+  expect(windowsFileVersion('v1.2.3-beta.1')).toBe('1.2.3.0')
+  expect(() => windowsFileVersion('beta')).toThrow(/Windows/)
 })
 
 test('windows installer restarts after a silent update', () => {

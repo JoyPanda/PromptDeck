@@ -2,6 +2,15 @@ export function releaseTag(version: string): string {
   return version.startsWith('v') ? version : `v${version}`
 }
 
+// VERSIONINFO stores four integers. 0.9.1 becomes 0.9.1.0.
+export function windowsFileVersion(version: string): string {
+  const core = version.trim().replace(/^v/, '').split(/[-+]/)[0] ?? ''
+  const parts = core.split('.').filter((part) => /^[0-9]+$/.test(part))
+  if (parts.length === 0 || parts.length > 4) throw new Error(`版本号 ${version} 不能写入 Windows 可执行文件`)
+  while (parts.length < 4) parts.push('0')
+  return parts.join('.')
+}
+
 export function assertReleaseVersion(version: string): string {
   const tag = releaseTag(version)
   if (!/^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?$/.test(tag)) {

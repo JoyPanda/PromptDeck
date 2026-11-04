@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { windowsFileVersion } from './names'
 import { patchWindowsExeIcon } from './win-icon'
 
 const nativeModules: Record<string, string> = {
@@ -29,7 +30,15 @@ writeEntry(entry)
 
 const args = ['build', '--compile', `--asset=${asset}`, entry, '--outfile', outfile]
 if (process.platform === 'win32') {
-  args.push('--windows-hide-console', `--asset=${path.resolve('assets', 'PromptDeck.ico')}`)
+  const version = windowsFileVersion(JSON.parse(readFileSync('package.json', 'utf8')).version)
+  args.push(
+    '--windows-hide-console',
+    '--windows-title=PromptDeck',
+    '--windows-description=PromptDeck',
+    '--windows-publisher=PromptDeck',
+    `--windows-version=${version}`,
+    `--asset=${path.resolve('assets', 'PromptDeck.ico')}`,
+  )
 }
 
 const result = spawnSync(process.execPath, args, { stdio: 'inherit' })
