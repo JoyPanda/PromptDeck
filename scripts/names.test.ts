@@ -110,6 +110,10 @@ test('windows exe is named PromptDeck in the task manager', () => {
   expect(strings.ProductVersion).toBe('0.9.5.0')
   expect(strings.LegalCopyright).toBe('https://bun.com/docs/project/licensing')
   expect(Buffer.compare(patched, stampWindowsIdentity(patched, { name: 'PromptDeck', version: '0.9.5.0' }))).toBe(0)
+  const packed = packVersionResource(patched)
+  const kept = stampWindowsIdentity(packed, { name: 'PromptDeck', version: '0.9.5.0' })
+  expect(windowsVersionStrings(kept).FileDescription).toBe('PromptDeck')
+  expect(() => stampWindowsIdentity(packVersionResource(exeWithBunVersion()), { name: 'PromptDeck', version: '0.9.5.0' })).toThrow(/版本信息写不进 exe/)
   expect(() => stampWindowsIdentity(Buffer.from('not an exe'), { name: 'PromptDeck', version: '0.9.5.0' })).toThrow(/可执行文件/)
 })
 
@@ -126,6 +130,18 @@ test('app icon is a square png', () => {
   expect(width).toBeGreaterThanOrEqual(256)
   rmSync(dir, { recursive: true, force: true })
 })
+
+function packVersionResource(exe: Buffer): Buffer {
+  const out = Buffer.from(exe)
+  const section = 0x98 + 240
+  const raw = out.readUInt32LE(section + 20)
+  const marker = Buffer.from('VS_VERSION_INFO\0', 'utf16le')
+  const key = out.indexOf(marker)
+  const dataOffset = key - 6
+  const size = out.readUInt16LE(dataOffset)
+  out.writeUInt32LE(dataOffset - raw + size, section + 16)
+  return out
+}
 
 function exeWithBunVersion(): Buffer {
   const version = bunVersionInfo()

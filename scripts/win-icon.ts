@@ -307,7 +307,12 @@ export function stampWindowsIdentity(exe: Buffer, options: { name: string; versi
   const current = out.subarray(version.dataOffset, version.dataOffset + version.size)
   const block = rebuildVersionInfo(current, options)
   const room = versionRoom(out, file, version)
-  if (block.length > room) throw new Error('版本信息写不进 exe')
+  // A Windows build already receives --windows-description. Its version resource is packed tight, so rewriting a larger block fails.
+  // Task Manager reads FileDescription, which is already the app name, so keep that resource.
+  if (block.length > room) {
+    if (parseVersionInfo(current).strings.FileDescription !== options.name) throw new Error('版本信息写不进 exe')
+    return out
+  }
   block.copy(out, version.dataOffset)
   if (block.length < version.size) out.fill(0, version.dataOffset + block.length, version.dataOffset + version.size)
   out.writeUInt32LE(block.length, version.entryOffset + 4)
