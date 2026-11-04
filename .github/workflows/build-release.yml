@@ -126,34 +126,13 @@ jobs:
       - name: Check macOS signing configuration
         id: mac-signing
         shell: bash
-        env:
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          MISSING=()
-          [[ -z "$MAC_CSC_LINK" ]] && MISSING+=(MAC_CSC_LINK)
-          [[ -z "$MAC_CSC_KEY_PASSWORD" ]] && MISSING+=(MAC_CSC_KEY_PASSWORD)
-          [[ -z "$APPLE_ID" ]] && MISSING+=(APPLE_ID)
-          [[ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]] && MISSING+=(APPLE_APP_SPECIFIC_PASSWORD)
-          [[ -z "$APPLE_TEAM_ID" ]] && MISSING+=(APPLE_TEAM_ID)
-
-          if [[ ${#MISSING[@]} -eq 0 ]]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "### macOS (arm64) 签名状态：✅ 将执行 Developer ID 签名 + Apple 公证" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::macOS signing credentials are incomplete (missing: ${MISSING[*]}); publishing an unsigned compatibility build."
-            {
-              echo "### macOS (arm64) 签名状态：⚠️ 未签名兼容构建"
-              echo ""
-              echo "缺少 Secrets：\`${MISSING[*]}\`"
-              echo ""
-              echo "产物将以 \`-unsigned\` 后缀发布（仅 ad-hoc 签名，未公证），用户需在访达中右键应用并选择「打开」。"
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "### macOS (arm64) 签名状态：⚠️ 未签名兼容构建"
+            echo ""
+            echo "这次发布只上传未签名安装包（仅 ad-hoc 签名，未公证）。用户需在访达中右键应用并选择「打开」。"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build, sign, and notarize (macOS)
         if: steps.mac-signing.outputs.available == 'true'
@@ -228,30 +207,11 @@ jobs:
       - name: Check SignPath configuration
         id: signpath
         shell: pwsh
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-          SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
-          SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG }}
         run: |
-          $missing = @()
-          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_API_TOKEN)) { $missing += 'SIGNPATH_API_TOKEN' }
-          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_ORGANIZATION_ID)) { $missing += 'SIGNPATH_ORGANIZATION_ID' }
-          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_PROJECT_SLUG)) { $missing += 'SIGNPATH_PROJECT_SLUG' }
-          if ([string]::IsNullOrWhiteSpace($env:SIGNPATH_SIGNING_POLICY_SLUG)) { $missing += 'SIGNPATH_SIGNING_POLICY_SLUG' }
-
-          if ($missing.Count -eq 0) {
-            "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            "### Windows 签名状态：✅ 将提交 SignPath 签名请求" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          } else {
-            "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Warning ("SignPath credentials are incomplete (missing: {0}); publishing an unsigned compatibility build." -f ($missing -join ', '))
-            "### Windows 签名状态：⚠️ 未签名兼容构建" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            ("缺少 Secrets：``{0}``" -f ($missing -join ', ')) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            "安装包将以 ``-unsigned`` 后缀发布，安装时会触发 SmartScreen 提示（更多信息 → 仍要运行）。" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          }
+          "available=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "### Windows 签名状态：⚠️ 未签名兼容构建" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "这次发布只上传未签名安装包，文件名带 ``-unsigned``。安装时会触发 SmartScreen 提示（更多信息 → 仍要运行）。" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Upload unsigned installer for origin verification
         if: steps.signpath.outputs.available == 'true'
