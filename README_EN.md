@@ -23,6 +23,7 @@
 
 - **Templates and slots**: write prompts with `{{name}}` placeholders. Slots can be single-line text, multiline text, a dropdown, a number, or yes/no.
 - **Use, history, edit**: fill the slots, generate the prompt, and copy it. Each template keeps its generation history, and the sidebar can show every history entry.
+- **Clipboard history**: while the app is running, it keeps copied plain text. Search, copy, or delete one entry. Known secrets are masked. Text written by PromptDeck itself is left out unless you turn that on.
 - **Organization**: favorites, tags, and categories stay on the template and can be filtered in the sidebar.
 - **Repository sync**: sync templates with GitHub or GitLab. Newer edits win, and deletions are recorded as tombstones. Generation history stays on this computer.
 - **Appearance and hotkey**: follow the system theme, or choose light or dark, and change the font and size. A global hotkey brings the window forward. Closing the window can also hide it in the tray.
